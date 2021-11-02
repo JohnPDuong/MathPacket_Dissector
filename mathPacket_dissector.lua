@@ -11,9 +11,9 @@ result = ProtoField.string("mathpacket.result", "Result", base.ASCII)
 rounding = ProtoField.string("mathpacket.rounding", "Rounding", base.ASCII)
 overflow = ProtoField.string("mathpacket.overflow", "Overflow", base.ASCII)
 
-connection = ProtoField.string("mathpacket.connection", "Connection")
+connection = ProtoField.string("mathpacket.connection", "Connection", base.ASCII)
 
-mathPacket_protocol.fields = {command, version, operand1, operator, operand2, response_code, result, rounding, overflow}
+mathPacket_protocol.fields = {command, version, operand1, operator, operand2, response_code, result, rounding, overflow, connection}
 
 function doDissection(buffer, pinfo, tree, hexBuffer)
   length = buffer:len()
@@ -23,54 +23,37 @@ function doDissection(buffer, pinfo, tree, hexBuffer)
 
   local subtree = tree:add(mathPacket_protocol, buffer(), "Math Protocol Data")
   local offset = 0
-  local parseLength = parse(" ", buffer, offset)
-  local parseString = buffertohex(offset, parseLength, buffer)
-  local hexString = string.tohex("CALCULATE")
 
-  if parseString == hexString then
-    parseString = buffer(offset, parseLength)
-    subtree:add_le(command, parseString)
+  if buffertohex(0, parse(" ", buffer, 0), buffer) == string.tohex("CALCULATE") then
+    subtree:add_le(command, buffer(0, parse(" ", buffer, 0)))
 
     offset = parse("/", buffer, offset)
-    parseLength = parse("\n", buffer, offset) - offset
-    parseString = buffer(offset + 1, parseLength - 1)
-    subtree:add_le(version, parseString)
+    subtree:add_le(version, buffer(offset + string.len("/"), parse("\n", buffer, offset) - offset - string.len("/")))
 
     offset = parse("Operand1: ", buffer, offset)
-    parseLength = parse("\n", buffer, offset) - offset
-    parseString = buffer(offset + 1, parseLength - 1)
-    subtree:add_le(operand1, parseString)
+    subtree:add_le(operand1, buffer(offset + string.len("Operand1: "), parse("\n", buffer, offset) - offset - string.len("Operand1: ")))
 
     offset = parse("Operator: ", buffer, offset)
-    parseLength = parse("\n", buffer, offset) - offset
-    parseString = buffer(offset + 1, parseLength - 1)
-    subtree:add_le(operator, parseString)
+    subtree:add_le(operator, buffer(offset + string.len("Operator: "), parse("\n", buffer, offset) - offset - string.len("Operator: ")))
 
     offset = parse("Operand2: ", buffer, offset)
-    parseLength = parse("\n", buffer, offset) - offset
-    parseString = buffer(offset + 1, parseLength - 1)
-    subtree:add_le(operand2, parseString)
+    subtree:add_le(operand2, buffer(offset + string.len("Operand2: "), parse("\n", buffer, offset) - offset - string.len("Operand2: ")))
   else
     offset = parse("/1.0 ", buffer, 0)
-    parseLength = parse("\n", buffer, offset) - offset
-    parseString = buffer(offset + string.len("/1.0 "), parseLength - string.len("/1.0 "))
-    subtree:add_le(response_code, parseString)
+    subtree:add_le(response_code, buffer(offset + string.len("/1.0 "), parse("\n", buffer, offset) - offset - string.len("/1.0 ")))
 
     offset = parse("Result: ", buffer, offset)
-    parseLength = parse("\n", buffer, offset) - offset
-    parseString = buffer(offset + string.len("Result: "), parseLength - string.len("Result: "))
-    subtree:add_le(result, parseString)
+    subtree:add_le(result, buffer(offset + string.len("Result: "), parse("\n", buffer, offset) - offset - string.len("Result: ")))
 
     offset = parse("Rounding: ", buffer, offset)
-    parseLength = parse("\n", buffer, offset) - offset
-    parseString = buffer(offset + string.len("Rounding: "), parseLength - string.len("Rounding: "))
-    subtree:add_le(rounding, parseString)
+    subtree:add_le(rounding, buffer(offset + string.len("Rounding: "), parse("\n", buffer, offset) - offset - string.len("Rounding: ")))
 
     offset = parse("Overflow: ", buffer, offset)
-    parseLength = parse("\n", buffer, offset) - offset
-    parseString = buffer(offset + string.len("Overflow: "), parseLength - string.len("Overflow: "))
-    subtree:add_le(overflow, parseString)
+    subtree:add_le(overflow, buffer(offset + string.len("Overflow: "), parse("\n", buffer, offset) - offset - string.len("Overflow: ")))
   end
+
+  offset = parse("Connection: ", buffer, offset)
+  subtree:add_le(connection, buffer(offset + string.len("Connection: "), parse("\n", buffer, offset) - offset - string.len("Connection: ")))
 end
 
 function string.tohex(str)
@@ -81,9 +64,8 @@ end
 
 function parse(parseChar, buffer, offset)
   local pos = offset
-  local parseChar = string.tohex(parseChar)
 
-  while parseChar ~= buffer(pos, string.len(parseChar) / 2):bytes():tohex() do
+  while string.tohex(parseChar) ~= buffer(pos, string.len(string.tohex(parseChar)) / 2):bytes():tohex() do
     pos = pos + 1
   end
   
@@ -95,15 +77,11 @@ function buffertohex (offset, length, buffer)
 end
 
 function mathPacket_protocol.dissector(buffer, pinfo, tree)
-  local hexBuffer = buffertohex(0, buffer:len(), buffer)
-
-  if string.find(hexBuffer, "0A0A") then
-    doDissection(buffer, pinfo, tree)
-  else
+  if not string.find(buffertohex(0, buffer:len(), buffer), "0A0A") then
     pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
-    hexBuffer = buffertohex(0, buffer:len(), buffer)
-    doDissection(buffer, pinfo, tree)
   end
+
+  doDissection(buffer, pinfo, tree)
 end
 
 local tcp_port = DissectorTable.get("tcp.port")
